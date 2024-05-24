@@ -27,5 +27,6 @@ namespace pl::core::err {
     const static inline EvaluatorError E0011(11, "Memory error.");
     const static inline EvaluatorError E0012(12, "Built-in function error.");
     const static inline EvaluatorError E0013(13, "Ambiguity error.");
+    const static inline EvaluatorError E0014(14, "Section access error.");
 
 }

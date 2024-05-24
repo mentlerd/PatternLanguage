@@ -336,10 +336,6 @@ namespace pl {
             return this->m_internals.evaluator->getSection(id);
     }
 
-    [[nodiscard]] const std::map<u64, api::Section>& PatternLanguage::getSections() const {
-        return this->m_internals.evaluator->getSections();
-    }
-
     [[nodiscard]] const std::vector<std::shared_ptr<ptrn::Pattern>> &PatternLanguage::getPatterns(u64 section) const {
         static const std::vector<std::shared_ptr<pl::ptrn::Pattern>> empty;
         if (this->m_patterns.contains(section))

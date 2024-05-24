@@ -145,9 +145,13 @@ namespace pl::core {
         [[nodiscard]] u64 createSection(const std::string &name);
         void removeSection(u64 id);
         [[nodiscard]] std::vector<u8>& getSection(u64 id);
-        [[nodiscard]] const std::map<u64, api::Section>& getSections() const;
-
-        [[nodiscard]] u64 getSectionCount() const;
+        
+        [[nodiscard]] const std::map<u64, api::Section>& getSections() const {
+            return m_sections;
+        }
+        [[nodiscard]] u64 getSectionCount() const {
+            return m_sections.size();
+        }
 
         void setInVariables(const std::map<std::string, Token::Literal> &inVariables) {
             this->m_inVariables = inVariables;
@@ -174,6 +178,9 @@ namespace pl::core {
         }
 
         void accessData(u64 address, void *buffer, size_t size, u64 sectionId, bool write);
+        
+        void transferData(u64 fromAddress, size_t size, u64 fromSectionId, u64 toAddress, u64 toSectionId, bool expand);
+        
         void readData(u64 address, void *buffer, size_t size, u64 sectionId) {
             this->accessData(address, buffer, size, sectionId, false);
         }

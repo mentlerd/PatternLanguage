@@ -576,44 +576,54 @@ namespace pl::core {
 
         // Write value into variable storage
         {
-            bool heapSection = pattern->getSection() == ptrn::Pattern::HeapSectionId;
-            bool mainSection = pattern->getSection() == ptrn::Pattern::MainSectionId;
-            bool patternLocalSection = pattern->getSection() == ptrn::Pattern::PatternLocalSectionId;
+            const bool mainSection = pattern->getSection() == ptrn::Pattern::MainSectionId;
+            const bool heapSection = pattern->getSection() == ptrn::Pattern::HeapSectionId;
+            const bool patternLocalSection = pattern->getSection() == ptrn::Pattern::PatternLocalSectionId;
 
             auto getStorage = [&, this]() -> auto& {
-                if (heapSection) {
-                    if (auto &heap = this->getHeap(); heap.size() > pattern->getHeapAddress())
-                        return heap[pattern->getHeapAddress()];
-                    else
+                if (mainSection) {
+                    err::E0011.throwError("Cannot access main section as contiguous storage");
+                } else if (heapSection) {
+                    if (m_heap.size() <= pattern->getHeapAddress()) {
                         err::E0011.throwError(fmt::format("Tried accessing out of bounds heap cell {}. This is a bug.", pattern->getHeapAddress()));
+                    }
+                    
+                    return m_heap[pattern->getHeapAddress()];
                 } else if (patternLocalSection) {
-                    if (this->m_patternLocalStorage.contains(pattern->getHeapAddress()))
-                        return this->m_patternLocalStorage[pattern->getHeapAddress()].data;
-                    else
+                    auto it = m_patternLocalStorage.find(pattern->getHeapAddress());
+                    if (it == m_patternLocalStorage.end()) {
                         err::E0011.throwError(fmt::format("Tried accessing out of bounds pattern local cell {}. This is a bug.", pattern->getHeapAddress()));
-                } else {
-                    return this->getSection(pattern->getSection());
+                    }
+                    
+                    return it->second.data;
                 }
+                
+                err::E0001.throwError("Tried to access contiguous storage for section backed pattern. This is a bug.");
             };
 
             auto copyToStorage = [&, this](auto &value) {
-                u64 offset = (pattern->isPatternLocal() || heapSection) ? pattern->getOffset() & 0xFFFF'FFFF : pattern->getOffset();
+                if (heapSection || patternLocalSection) {
+                    auto& storage = getStorage();
 
-                if (mainSection) {
-                    if (!this->m_mainSectionEditsAllowed)
-                        err::E0007.throwError("Modifying the main memory directly is only allowed with `#pragma allow_edits` set.");
-
-                    this->accessData(offset, &value, pattern->getSize(), pattern->getSection(), true);
-                } else {
-                    auto &storage = getStorage();
-
-                    if (storage.size() < offset + pattern->getSize())
+                    u32 offset = static_cast<u32>(pattern->getOffset());
+                    
+                    // Ensure storage will fit data
+                    if (storage.size() < offset + pattern->getSize()) {
                         storage.resize(offset + pattern->getSize());
+                    }
+                    
                     std::memmove(storage.data() + offset, &value, pattern->getSize());
+                } else {
+                    if (mainSection && !this->m_mainSectionEditsAllowed) {
+                        err::E0007.throwError("Modifying the main memory directly is only allowed with `#pragma allow_edits` set.");
+                    }
+                    
+                    accessData(pattern->getOffset(), &value, pattern->getSize(), pattern->getSection(), true);
                 }
 
-                if (this->isDebugModeEnabled())
-                    this->getConsole().log(LogConsole::Level::Debug, fmt::format("Setting local variable '{}' to {}.", pattern->getVariableName(), value));
+                if (isDebugModeEnabled()) {
+                    getConsole().log(LogConsole::Level::Debug, fmt::format("Setting local variable '{}' to {}.", pattern->getVariableName(), value));
+                }
             };
 
             std::visit(wolv::util::overloaded {
@@ -669,28 +679,45 @@ namespace pl::core {
                     copyToStorage(copy[0]);
                 },
                 [&, this](const std::shared_ptr<ptrn::Pattern>& value) {
-                    if (!pattern->isReference()) {
-                        changePatternType(pattern, value->clone());
-                    } else {
+                    if (pattern->isReference()) {
                         pattern = value;
+                    } else {
+                        changePatternType(pattern, value->clone());
                     }
 
-                    auto &storage = getStorage();
-                    if (value->getSection() != ptrn::Pattern::InstantiationSectionId) {
-                        if (heapSection || patternLocalSection) {
-                            storage.resize((value->getOffset() & 0xFFFF'FFFF) + value->getSize());
-                            this->readData(value->getOffset(), storage.data(), value->getSize(), value->getSection());
-                        } else if (storage.size() < pattern->getOffset() + pattern->getSize()) {
-                            storage.resize(pattern->getOffset() + pattern->getSize());
-                            this->readData(value->getOffset(), storage.data() + pattern->getOffset(), value->getSize(), value->getSection());
-                        }
-                    } else {
+                    if (value->getSection() == ptrn::Pattern::InstantiationSectionId) {
+                        auto& storage = getStorage();
+                        
                         storage.resize(value->getSize());
                         std::fill(storage.begin(), storage.end(), 0x00);
+                        
+                        if (isDebugModeEnabled()) {
+                            getConsole().log(LogConsole::Level::Debug, fmt::format("Setting local variable '{}' to zeros.", pattern->getVariableName()));
+                        }
+                    } else if (heapSection || patternLocalSection) {
+                        auto& storage = getStorage();
+                        
+                        u32 offset = static_cast<u32>(value->getOffset());
+                        
+                        // TODO: Copied exact behavior, but this looks buggy. copyToStorage respects pattern offset, this does not
+                        storage.resize(offset + pattern->getSize());
+                        readData(value->getOffset(), storage.data(), value->getSize(), value->getSection());
+                        
+                        if (isDebugModeEnabled()) {
+                            getConsole().log(LogConsole::Level::Debug, fmt::format("Setting local variable '{}' to {:02X}.", pattern->getVariableName(), fmt::join(storage, " ")));
+                        }
+                    } else {
+                        if (mainSection && !this->m_mainSectionEditsAllowed) {
+                            err::E0007.throwError("Modifying the main memory directly is only allowed with `#pragma allow_edits` set.");
+                        }
+                        
+                        transferData(value->getOffset(), value->getSize(), value->getSection(), pattern->getOffset(), pattern->getSection(), true);
+                        
+                        if (isDebugModeEnabled()) {
+                            // TODO: Locals can be huge in theory, especially if hosted in a view...
+                            getConsole().log(LogConsole::Level::Debug, fmt::format("Setting local variable '{}' to ???", pattern->getVariableName()));
+                        }
                     }
-
-                    if (this->isDebugModeEnabled())
-                        this->getConsole().log(LogConsole::Level::Debug, fmt::format("Setting local variable '{}' to {:02X}.", pattern->getVariableName(), fmt::join(storage, " ")));
                 }
             }, castedValue);
         }
@@ -851,27 +878,6 @@ namespace pl::core {
 
     void Evaluator::removeSection(u64 id) {
         this->m_sections.erase(id);
-    }
-
-    std::vector<u8>& Evaluator::getSection(u64 id) {
-        if (id == ptrn::Pattern::MainSectionId)
-            err::E0011.throwError("Cannot access main section.");
-        else if (id == ptrn::Pattern::HeapSectionId)
-            return this->m_heap.back();
-        else if (this->m_sections.contains(id))
-            return this->m_sections[id].data;
-        else if (id == ptrn::Pattern::InstantiationSectionId)
-            err::E0012.throwError("Cannot access data of type that hasn't been placed in memory.");
-        else
-            err::E0011.throwError(fmt::format("Tried accessing a non-existing section with id {}.", id));
-    }
-
-    const std::map<u64, api::Section> &Evaluator::getSections() const {
-        return this->m_sections;
-    }
-
-    u64 Evaluator::getSectionCount() const {
-        return this->m_sections.size();
     }
 
     bool Evaluator::evaluate(const std::vector<std::shared_ptr<ast::ASTNode>> &ast) {
