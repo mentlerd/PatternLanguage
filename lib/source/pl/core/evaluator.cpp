@@ -833,24 +833,37 @@ namespace pl::core {
         } else if (sectionId == ptrn::Pattern::InstantiationSectionId) {
             err::E0012.throwError("Cannot access data of type that hasn't been placed in memory.");
         } else {
-            if (this->m_sections.contains(sectionId)) {
-                auto &section = this->m_sections[sectionId];
-
-                if (!write) {
-                    if ((address + size) <= section.data.size())
-                        std::memmove(buffer, section.data.data() + address, size);
-                    else
-                        std::memset(buffer, 0x00, size);
-                } else {
-                    if ((address + size) <= section.data.size())
-                        std::memmove(section.data.data() + address, buffer, size);
+            auto it = m_sections.find(sectionId);
+            if (it == m_sections.end()) {
+                err::E0012.throwError(fmt::format("Tried accessing non-existing section {}.", sectionId));
+            }
+            
+            api::Section& section = *it->second.section;
+            std::span<u8> span(reinterpret_cast<u8*>(buffer), size);
+            
+            if (write) {
+                if (auto error = section.write(true, address, span)) {
+                    err::E0014.throwError(fmt::format("Write error in section {}: {}", sectionId, *error));
                 }
-            } else
-                err::E0012.throwError(fmt::format("Tried accessing a non-existing section with id {}.", sectionId));
+            } else {
+                if (auto error = section.read(address, span)) {
+                    err::E0014.throwError(fmt::format("Read error in section {}: {}", sectionId, *error));
+                }
+            }
         }
 
         if (this->isDebugModeEnabled())
             this->m_console.log(LogConsole::Level::Debug, fmt::format("{} {} bytes from address 0x{:02X} in section {:02X}", write ? "Writing" : "Reading", size, address, sectionId));
+    }
+
+    void Evaluator::transferData(u64 fromAddress, size_t size, u64 fromSectionId, u64 toAddress, u64 toSectionId, bool expand) {
+        (void)fromAddress;
+        (void)size;
+        (void)fromSectionId;
+        (void)toAddress;
+        (void)toSectionId;
+        (void)expand;
+        err::E0001.throwError("Not implemented");
     }
 
     void Evaluator::pushSectionId(u64 id) {
@@ -868,16 +881,63 @@ namespace pl::core {
         return this->m_sectionIdStack.back();
     }
 
+    class HeapSection : public api::Section {
+        static constexpr size_t kMaxHeapSectionSize = 0xFFFF'FFFFF;
+        
+        using api::Section::Section;
+        
+        size_t size() const override {
+            return buffer.size();
+        }
+        
+        IOError resize(size_t newSize) override {
+            if (kMaxHeapSectionSize < newSize) {
+                return fmt::format("Expansion beyond maximum size of {} is not permitted. Would overflow my {} bytes", kMaxHeapSectionSize, newSize - kMaxHeapSectionSize);
+            }
+            
+            buffer.resize(newSize);
+            return std::nullopt;
+        }
+
+        IOError readRaw(u64 address, size_t size, ChunkReader reader) const override {
+            return reader(std::span(buffer).subspan(address, size));
+        }
+        
+        IOError writeRaw(u64 address, size_t size, ChunkWriter writer) override {
+            return writer(std::span(buffer).subspan(address, size));
+        }
+
+        std::vector<u8> buffer;
+    };
+
     u64 Evaluator::createSection(const std::string &name) {
         auto id = this->m_sectionId;
         this->m_sectionId++;
 
-        this->m_sections.insert({ id, { name, { } } });
+        this->m_sections.emplace(id, api::CustomSection{
+            .name = name,
+            .section = std::make_unique<HeapSection>()
+        });
         return id;
     }
 
     void Evaluator::removeSection(u64 id) {
         this->m_sections.erase(id);
+    }
+
+    api::Section& Evaluator::getSection(u64 id) {
+        if (id == ptrn::Pattern::MainSectionId)
+            err::E0001.throwError("Access to main section as api::Section is not implemented.");
+        else if (id == ptrn::Pattern::HeapSectionId)
+            err::E0001.throwError("Access to heap section as api::Section is not implemented.");
+        else if (id == ptrn::Pattern::InstantiationSectionId)
+            err::E0012.throwError("Cannot access data of type that hasn't been placed in memory.");
+        
+        if (auto it = m_sections.find(id); it != m_sections.end()) {
+            return *it->second.section;
+        }
+
+        err::E0011.throwError(fmt::format("Tried accessing a non-existing section with id {}.", id));
     }
 
     bool Evaluator::evaluate(const std::vector<std::shared_ptr<ast::ASTNode>> &ast) {
@@ -1144,5 +1204,4 @@ namespace pl::core {
             }
         }
     }
-
 }

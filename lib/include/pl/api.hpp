@@ -9,6 +9,7 @@
 #include <functional>
 #include <string>
 #include <optional>
+#include <span>
 
 namespace pl {
 
@@ -58,12 +59,50 @@ namespace pl::api {
 
     };
 
+    class Section {
+    public:
+        using IOError = std::optional<std::string>;
+        
+        using ChunkReader = std::function<IOError(std::span<const u8>)>;
+        using ChunkWriter = std::function<IOError(std::span<u8>)>;
+
+        virtual ~Section() {};
+        
+        /// Read data from this section into the provided contiguous buffer
+        IOError read(u64 fromAddress, std::span<u8> into) const;
+
+        /// Read data from this section - the section will call `reader` with the largest contiguous chunks it can provide
+        IOError read(u64 fromAddress, size_t size, ChunkReader reader) const;
+        
+        /// Write data to this section from the provided contiguous buffer
+        IOError write(bool expand, u64 toAddress, std::span<const u8> from);
+
+        /// Write data to this section - the section will call `writer` with the largest contiguous chunks it can provide
+        IOError write(bool expand, u64 toAddress, size_t size, ChunkWriter writer);
+
+        /// Write data to this section from the provided section
+        IOError write(bool expand, u64 toAddress, size_t size, u64 fromAddress, api::Section& fromSection);
+
+        /// Access the size of this section
+        virtual size_t size() const = 0;
+        
+        /// Shrink or expand this section to the specified size
+        virtual IOError resize(size_t newSize) = 0;
+
+    protected:
+        /// Performs a chunked write operation - incoming parameters have been already validated
+        virtual IOError readRaw(u64 fromAddress, size_t size, ChunkReader reader) const = 0;
+
+        /// Performs a chunked write operation - incoming parameters have been already validated
+        virtual IOError writeRaw(u64 toAddress, size_t size, ChunkWriter writer) = 0;
+    };
+
     /**
      * @brief A type representing a custom section
      */
-    struct Section {
+    struct CustomSection {
         std::string name;
-        std::vector<u8> data;
+        std::unique_ptr<Section> section;
     };
 
     /**

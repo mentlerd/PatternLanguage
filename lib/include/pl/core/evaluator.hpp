@@ -144,9 +144,9 @@ namespace pl::core {
         [[nodiscard]] u64 getSectionId() const;
         [[nodiscard]] u64 createSection(const std::string &name);
         void removeSection(u64 id);
-        [[nodiscard]] std::vector<u8>& getSection(u64 id);
+        [[nodiscard]] api::Section& getSection(u64 id);
         
-        [[nodiscard]] const std::map<u64, api::Section>& getSections() const {
+        [[nodiscard]] const std::map<u64, api::CustomSection>& getSections() const {
             return m_sections;
         }
         [[nodiscard]] u64 getSectionCount() const {
@@ -420,7 +420,7 @@ namespace pl::core {
         std::atomic<bool> m_aborted;
 
         std::vector<u64> m_sectionIdStack;
-        std::map<u64, api::Section> m_sections;
+        std::map<u64, api::CustomSection> m_sections;
         u64 m_sectionId = 0;
 
         std::vector<std::unique_ptr<Scope>> m_scopes;

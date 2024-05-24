@@ -328,12 +328,34 @@ namespace pl {
         return this->m_internals.evaluator->getPatternLimit();
     }
 
-    const std::vector<u8>& PatternLanguage::getSection(u64 id) const {
-        static std::vector<u8> empty;
+    class EmptySection : public api::Section {
+        size_t size() const override {
+            return 0;
+        }
+        
+        IOError resize(size_t) override {
+            return "EmptySection cannot be resized";
+        }
+
+        IOError readRaw(u64, size_t, ChunkReader) const override {
+            return "EmptySection section cannot be read";
+        }
+
+        IOError writeRaw(u64, size_t, ChunkWriter) override {
+            return "EmptySection section cannot be written";
+        }
+    };
+
+    const api::Section& PatternLanguage::getSection(u64 id) const {
+        static EmptySection empty;
         if (id > this->m_internals.evaluator->getSectionCount() || id == ptrn::Pattern::MainSectionId || id == ptrn::Pattern::HeapSectionId)
             return empty;
         else
             return this->m_internals.evaluator->getSection(id);
+    }
+
+    [[nodiscard]] const std::map<u64, api::CustomSection>& PatternLanguage::getSections() const {
+        return this->m_internals.evaluator->getSections();
     }
 
     [[nodiscard]] const std::vector<std::shared_ptr<ptrn::Pattern>> &PatternLanguage::getPatterns(u64 section) const {
