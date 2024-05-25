@@ -882,12 +882,16 @@ namespace pl::core {
     }
 
     u64 Evaluator::createSection(const std::string &name) {
+        return createSection(name, std::make_unique<InMemorySection>());
+    }
+
+    u64 Evaluator::createSection(const std::string& name, std::unique_ptr<api::Section> section) {
         auto id = this->m_sectionId;
         this->m_sectionId++;
 
         this->m_sections.emplace(id, api::CustomSection{
             .name = name,
-            .section = std::make_unique<hlp::InMemorySection>()
+            .section = std::move(section)
         });
         return id;
     }

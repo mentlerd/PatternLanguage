@@ -11,9 +11,6 @@
 
 namespace pl::core {
     class Evaluator;
-}
-
-namespace pl::hlp {
 
     class ProviderSection : public api::Section {
     public:

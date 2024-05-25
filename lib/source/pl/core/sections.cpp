@@ -4,7 +4,7 @@
 
 #include <fmt/format.h>
 
-namespace pl::hlp {
+namespace pl::core {
 
     ProviderSection::ProviderSection(size_t readBufferSize, size_t writeBufferSize)
     : m_readBuffer(readBufferSize)

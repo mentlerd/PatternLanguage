@@ -143,8 +143,11 @@ namespace pl::core {
         void pushSectionId(u64 id);
         void popSectionId();
         [[nodiscard]] u64 getSectionId() const;
-        [[nodiscard]] u64 createSection(const std::string &name);
+        
+        [[nodiscard]] u64 createSection(const std::string& name);
+        [[nodiscard]] u64 createSection(const std::string& name, std::unique_ptr<api::Section> section);
         void removeSection(u64 id);
+        
         [[nodiscard]] api::Section& getSection(u64 id);
         
         [[nodiscard]] const std::map<u64, api::CustomSection>& getSections() const {
