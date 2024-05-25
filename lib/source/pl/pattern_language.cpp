@@ -337,11 +337,11 @@ namespace pl {
             return "EmptySection cannot be resized";
         }
 
-        IOError readRaw(u64, size_t, ChunkReader) const override {
+        IOError readRaw(u64, size_t, ChunkReader&) const override {
             return "EmptySection section cannot be read";
         }
 
-        IOError writeRaw(u64, size_t, ChunkWriter) override {
+        IOError writeRaw(u64, size_t, ChunkWriter&) override {
             return "EmptySection section cannot be written";
         }
     };

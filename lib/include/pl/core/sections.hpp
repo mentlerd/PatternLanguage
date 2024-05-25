@@ -38,9 +38,9 @@ namespace pl::core {
             return "ProviderSection cannot be resized";
         }
 
-        IOError readRaw(u64 fromAddress, size_t size, ChunkReader reader) const override;
+        IOError readRaw(u64 fromAddress, size_t size, ChunkReader& reader) const override;
 
-        IOError writeRaw(u64 toAddress, size_t size, ChunkWriter writer) override;
+        IOError writeRaw(u64 toAddress, size_t size, ChunkWriter& writer) override;
         
     private:
         u64 m_dataSize = 0x00;
@@ -76,11 +76,11 @@ namespace pl::core {
             return std::nullopt;
         }
 
-        IOError readRaw(u64 address, size_t size, ChunkReader reader) const override {
+        IOError readRaw(u64 address, size_t size, ChunkReader& reader) const override {
             return reader(std::span(m_buffer).subspan(address, size));
         }
         
-        IOError writeRaw(u64 address, size_t size, ChunkWriter writer) override {
+        IOError writeRaw(u64 address, size_t size, ChunkWriter& writer) override {
             return writer(std::span(m_buffer).subspan(address, size));
         }
 
@@ -105,9 +105,9 @@ namespace pl::core {
         
         IOError resize(size_t) override;
 
-        IOError readRaw(u64 fromAddress, size_t size, ChunkReader reader) const override;
+        IOError readRaw(u64 fromAddress, size_t size, ChunkReader& reader) const override;
 
-        IOError writeRaw(u64 toAddress, size_t size, ChunkWriter writer) override;
+        IOError writeRaw(u64 toAddress, size_t size, ChunkWriter& writer) override;
         
     private:
         struct SectionSpan {

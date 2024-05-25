@@ -11,7 +11,7 @@ namespace pl::core {
     , m_writeBuffer(writeBufferSize)
     {}
 
-    ProviderSection::IOError ProviderSection::readRaw(u64 fromAddress, size_t size, ChunkReader reader) const {
+    ProviderSection::IOError ProviderSection::readRaw(u64 fromAddress, size_t size, ChunkReader& reader) const {
         if (!m_reader) {
             return "No memory has been attached. Reading is disabled";
         }
@@ -41,7 +41,7 @@ namespace pl::core {
         return std::nullopt;
     }
 
-    ProviderSection::IOError ProviderSection::writeRaw(u64 toAddress, size_t size, ChunkWriter writer) {
+    ProviderSection::IOError ProviderSection::writeRaw(u64 toAddress, size_t size, ChunkWriter& writer) {
         if (!m_writer) {
             return "No memory has been attached. Writing is disabled";
         }

@@ -72,13 +72,13 @@ namespace pl::api {
         IOError read(u64 fromAddress, std::span<u8> into) const;
 
         /// Read data from this section - the section will call `reader` with the largest contiguous chunks it can provide
-        IOError read(u64 fromAddress, size_t size, ChunkReader reader) const;
+        IOError read(u64 fromAddress, size_t size, ChunkReader& reader) const;
         
         /// Write data to this section from the provided contiguous buffer
         IOError write(bool expand, u64 toAddress, std::span<const u8> from);
 
         /// Write data to this section - the section will call `writer` with the largest contiguous chunks it can provide
-        IOError write(bool expand, u64 toAddress, size_t size, ChunkWriter writer);
+        IOError write(bool expand, u64 toAddress, size_t size, ChunkWriter& writer);
 
         /// Write data to this section from the provided section
         IOError write(bool expand, u64 toAddress, size_t size, u64 fromAddress, api::Section& fromSection);
@@ -91,10 +91,10 @@ namespace pl::api {
 
     protected:
         /// Performs a chunked write operation - incoming parameters have been already validated
-        virtual IOError readRaw(u64 fromAddress, size_t size, ChunkReader reader) const = 0;
+        virtual IOError readRaw(u64 fromAddress, size_t size, ChunkReader& reader) const = 0;
 
         /// Performs a chunked write operation - incoming parameters have been already validated
-        virtual IOError writeRaw(u64 toAddress, size_t size, ChunkWriter writer) = 0;
+        virtual IOError writeRaw(u64 toAddress, size_t size, ChunkWriter& writer) = 0;
     };
 
     /**

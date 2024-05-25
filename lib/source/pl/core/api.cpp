@@ -5,15 +5,16 @@ namespace pl::api {
     u32 Source::idCounter;
 
     Section::IOError Section::read(u64 address, std::span<u8> into) const {
-        return read(address, into.size(), [=](std::span<const u8> chunk) mutable {
+        ChunkReader reader = [=](std::span<const u8> chunk) mutable {
             std::memcpy(into.data(), chunk.data(), chunk.size());
             
             into = into.subspan(chunk.size());
             return std::nullopt; // Continue
-        });
+        };
+        return read(address, into.size(), reader);
     }
 
-    Section::IOError Section::read(u64 fromAddress, size_t size, ChunkReader reader) const {
+    Section::IOError Section::read(u64 fromAddress, size_t size, ChunkReader& reader) const {
         const auto fail = [=](const std::string& reason) {
             u64 from = fromAddress;
             u128 to = fromAddress + size;
@@ -31,7 +32,7 @@ namespace pl::api {
             return fail(fmt::format("Attempted to read {} bytes past section end.", end - this->size()));
         }
         
-        auto readError = readRaw(fromAddress, size, std::move(reader));
+        auto readError = readRaw(fromAddress, size, reader);
         if (readError) {
             return fail(*readError);
         }
@@ -39,15 +40,16 @@ namespace pl::api {
     }
 
     Section::IOError Section::write(bool expand, u64 address, std::span<const u8> from) {
-        return write(expand, address, from.size(), [=](std::span<u8> chunk) mutable {
+        ChunkWriter writer = [=](std::span<u8> chunk) mutable {
             std::memcpy(chunk.data(), from.data(), chunk.size());
             
             from = from.subspan(chunk.size());
             return std::nullopt; // Continue
-        });
+        };
+        return write(expand, address, from.size(), writer);
     }
 
-    Section::IOError Section::write(bool expand, u64 toAddress, size_t size, ChunkWriter writer) {
+    Section::IOError Section::write(bool expand, u64 toAddress, size_t size, ChunkWriter& writer) {
         const auto fail = [=](const std::string& reason) {
             u64 from = toAddress;
             u128 to = toAddress + size;
@@ -71,7 +73,7 @@ namespace pl::api {
             }
         }
         
-        auto writeError = writeRaw(toAddress, size, std::move(writer));
+        auto writeError = writeRaw(toAddress, size, writer);
         if (writeError) {
             return fail(*writeError);
         }
@@ -82,15 +84,20 @@ namespace pl::api {
         IOError result;
         
         u64 readFront = fromAddress;
+        std::span<u8> writableChunk;
         
-        return write(expand, address, size, [&](std::span<u8> writableChunk) -> IOError {
-            return fromSection.read(readFront, writableChunk.size(), [&](std::span<const u8> chunk) {
-                std::memcpy(writableChunk.data(), chunk.data(), chunk.size());
-                
-                readFront += chunk.size();
-                return std::nullopt; // Continue
-            });
-        });
+        ChunkReader reader = [&](std::span<const u8> chunk) {
+            std::memcpy(writableChunk.data(), chunk.data(), chunk.size());
+            
+            readFront += chunk.size();
+            return std::nullopt; // Continue
+        };
+        ChunkWriter writer = [&](std::span<u8> chunk) {
+            writableChunk = chunk;
+            return fromSection.read(readFront, writableChunk.size(), reader);
+        };
+        
+        return write(expand, address, size, writer);
     }
 
 }
