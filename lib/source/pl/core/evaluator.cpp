@@ -881,42 +881,13 @@ namespace pl::core {
         return this->m_sectionIdStack.back();
     }
 
-    class HeapSection : public api::Section {
-        static constexpr size_t kMaxHeapSectionSize = 0xFFFF'FFFFF;
-        
-        using api::Section::Section;
-        
-        size_t size() const override {
-            return buffer.size();
-        }
-        
-        IOError resize(size_t newSize) override {
-            if (kMaxHeapSectionSize < newSize) {
-                return fmt::format("Expansion beyond maximum size of {} is not permitted. Would overflow my {} bytes", kMaxHeapSectionSize, newSize - kMaxHeapSectionSize);
-            }
-            
-            buffer.resize(newSize);
-            return std::nullopt;
-        }
-
-        IOError readRaw(u64 address, size_t size, ChunkReader reader) const override {
-            return reader(std::span(buffer).subspan(address, size));
-        }
-        
-        IOError writeRaw(u64 address, size_t size, ChunkWriter writer) override {
-            return writer(std::span(buffer).subspan(address, size));
-        }
-
-        std::vector<u8> buffer;
-    };
-
     u64 Evaluator::createSection(const std::string &name) {
         auto id = this->m_sectionId;
         this->m_sectionId++;
 
         this->m_sections.emplace(id, api::CustomSection{
             .name = name,
-            .section = std::make_unique<HeapSection>()
+            .section = std::make_unique<hlp::InMemorySection>()
         });
         return id;
     }

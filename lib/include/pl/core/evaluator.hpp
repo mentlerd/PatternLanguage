@@ -11,6 +11,7 @@
 
 #include <pl/core/log_console.hpp>
 #include <pl/core/token.hpp>
+#include <pl/core/sections.hpp>
 #include <pl/api.hpp>
 
 #include <pl/core/errors/runtime_errors.hpp>
