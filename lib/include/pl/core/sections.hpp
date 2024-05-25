@@ -7,6 +7,11 @@
 #include <vector>
 #include <span>
 #include <memory>
+#include <map>
+
+namespace pl::core {
+    class Evaluator;
+}
 
 namespace pl::hlp {
 
@@ -86,4 +91,41 @@ namespace pl::hlp {
         size_t m_maxSize;
     };
     
+    class ViewSection : public api::Section {
+    public:
+        explicit ViewSection(core::Evaluator& evaluator)
+        : m_evaluator(evaluator)
+        {}
+
+        /// Add an already existing section to this view section - either at the specified offset, or at the end
+        ///
+        /// In case of overlapping spans, the span with the higher offset will truncate the span before. Changing the view
+        /// once a span has been added is not implemented. Trying to add a view at the same offset will silently fail
+        void addSectionSpan(u64 sectionId, u64 fromAddress, size_t size, std::optional<u64> atOffset = std::nullopt);
+        
+    protected:
+        size_t size() const override;
+        
+        IOError resize(size_t) override;
+
+        IOError readRaw(u64 fromAddress, size_t size, ChunkReader reader) const override;
+
+        IOError writeRaw(u64 toAddress, size_t size, ChunkWriter writer) override;
+        
+    private:
+        struct SectionSpan {
+            u64 sectionId;
+            u64 offset;
+            size_t size;
+        };
+        
+        template<bool IsRead>
+        IOError access(u64 address, size_t size, auto& readerOrWriter) const;
+        
+        core::Evaluator& m_evaluator;
+        std::map<u64, SectionSpan> m_spans;
+        
+        mutable bool m_isBeingAccessed = false;
+    };
+
 }
