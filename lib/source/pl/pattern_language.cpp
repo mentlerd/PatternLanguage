@@ -344,6 +344,15 @@ namespace pl {
         IOError writeRaw(u64, size_t, ChunkWriter&) override {
             return "EmptySection section cannot be written";
         }
+        
+        bool readChunkAttributes(u64, size_t, ChunkAttributesReader& reader) const override {
+            ChunkAttributes attribs {
+                .type = ChunkAttributes::Type::Unmapped,
+                .baseAddress = 0,
+                .size = std::numeric_limits<size_t>::max()
+            };
+            return reader(attribs);
+        }
     };
 
     const api::Section& PatternLanguage::getSection(u64 id) const {

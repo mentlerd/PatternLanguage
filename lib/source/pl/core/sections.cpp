@@ -11,6 +11,24 @@ namespace pl::core {
     , m_writeBuffer(writeBufferSize)
     {}
 
+    bool ProviderSection::readChunkAttributes(u64 fromAddress, size_t size, ChunkAttributesReader& reader) const {
+        ChunkAttributes attribs {
+            .type = ChunkAttributes::Type::Unknown,
+            .baseAddress = 0,
+            .size = m_dataSize
+        };
+        if (bool stop = reader(attribs)) {
+            return true;
+        }
+        
+        if (fromAddress + size < attribs.size) {
+            return false;
+        }
+
+        attribs.RestIsUnmapped();
+        return reader(attribs);
+    }
+
     ProviderSection::IOError ProviderSection::readRaw(u64 fromAddress, size_t size, ChunkReader& reader) const {
         if (!m_reader) {
             return "No memory has been attached. Reading is disabled";
@@ -71,6 +89,25 @@ namespace pl::core {
         return std::nullopt;
     }
 
+    bool InMemorySection::readChunkAttributes(u64 fromAddress, size_t size, ChunkAttributesReader& reader) const {
+        ChunkAttributes attribs {
+            .type = ChunkAttributes::Type::Generic,
+            .baseAddress = 0,
+            .size = m_buffer.size(),
+            .writable = true
+        };
+        if (bool stop = reader(attribs)) {
+            return true;
+        }
+        
+        if (fromAddress + size < attribs.size) {
+            return false;
+        }
+        
+        attribs.RestIsUnmapped();
+        return reader(attribs);
+    }
+
     void ViewSection::addSectionSpan(u64 sectionId, u64 fromAddress, size_t size, std::optional<u64> atOffset) {
         if (atOffset == std::nullopt) {
             if (m_spans.empty()) {
@@ -109,36 +146,139 @@ namespace pl::core {
         return access<false>(toAddress, size, writer);
     }
 
-    template<bool IsRead>
-    ViewSection::IOError ViewSection::access(u64 address, size_t size, auto& readerOrWriter) const {
+    bool ViewSection::readChunkAttributes(u64 fromAddress, size_t size, ChunkAttributesReader& reader) const {
         if (m_isBeingAccessed) {
-            return "View self-recursion not permitted";
+            ChunkAttributes attribs {
+                .type = ChunkAttributes::Type::Unmapped,
+                .baseAddress = fromAddress,
+                .size = size
+            };
+            
+            return reader(attribs);
         }
         
         m_isBeingAccessed = true;
         ON_SCOPE_EXIT { m_isBeingAccessed = false; };
         
-        const auto fail = [](u64 from, u64 to, const std::string& extra) {
-            return fmt::format("Attempted to access out-of-bounds area 0x{:X}-0x{:X} (of {} bytes). {}", from, to, to - from, extra);
+        ChunkAttributesReader remapper = [&reader](const ChunkAttributes& chunkAttribs) -> bool {
+            ChunkAttributes attribs = chunkAttribs;
+            
+            return reader(attribs);
         };
         
-        const auto outOfBounds = [&](u64 from, u64 to) {
+        // This handler is called for unmapped ranges overlapping the query
+        const auto unmappedHandler = [&reader](u64 from, size_t chunkSize) -> bool {
+            ChunkAttributes attribs {
+                .type = ChunkAttributes::Type::Unmapped,
+                .baseAddress = from,
+                .size = chunkSize
+            };
+            
+            return reader(attribs);
+        };
+        
+        // This handler is called for mapped ranges overlapping the query
+        const auto mappedHandler = [this, &reader, &remapper](u64 address, size_t chunkSize, u64 sectionId, u64 chunkOffset) -> bool {
+            try {
+                return m_evaluator.getSection(sectionId).readChunkAttributes(chunkOffset, chunkSize, remapper);
+            } catch (...) {
+                ChunkAttributes attribs {
+                    .type = ChunkAttributes::Type::Unmapped,
+                    .baseAddress = address,
+                    .size = chunkSize
+                };
+                return reader(attribs);
+            }
+        };
+        
+        return iterate(fromAddress, size, unmappedHandler, mappedHandler);
+    }
+
+    bool ViewSection::iterate(u64 fromAddress, size_t size, auto& unmapped, auto& mapped) const {
+        if (m_spans.empty()) {
+            return unmapped(0, std::numeric_limits<size_t>::max());
+        }
+
+        auto address = fromAddress;
+        auto remain = size;
+        
+        auto next = m_spans.upper_bound(address);
+        auto curr = std::prev(next);
+        
+        for (; curr != m_spans.end(); curr = next++) {
+            if (address < curr->first) {
+                auto size = curr->first - address;
+                
+                if (bool stop = unmapped(address, size)) {
+                    return true;
+                }
+                
+                address = curr->first;
+                remain -= size;
+            }
+        
+            if (remain == 0) {
+                return false;
+            }
+            
+            auto chunkBase = address - curr->first;
+            auto chunkSize = std::min(remain, curr->second.size);
+            
+            if (next != m_spans.end()) {
+                chunkSize = std::min(chunkSize, (size_t) next->first);
+            }
+            
+            if (bool stop = mapped(address, chunkSize, curr->second.sectionId, chunkBase)) {
+                return true;
+            }
+            
+            address += chunkSize;
+            remain -= chunkSize;
+            
+            if (remain == 0) {
+                return false;
+            }
+        }
+        
+        return unmapped(address, std::numeric_limits<size_t>::max() - address);
+    }
+
+    template<bool IsRead>
+    ViewSection::IOError ViewSection::access(u64 fromAddress, size_t size, auto& readerOrWriter) const {
+        if (m_isBeingAccessed) {
+            return "View recursion not permitted";
+        }
+        
+        m_isBeingAccessed = true;
+        ON_SCOPE_EXIT { m_isBeingAccessed = false; };
+        
+        IOError result;
+        
+        const auto fail = [&result](u64 from, u64 to, const std::string& extra) {
+            result = fmt::format("Attempted to access out-of-bounds area 0x{:X}-0x{:X} (of {} bytes). {}", from, to, to - from, extra);
+            return true;
+        };
+
+        // This handler is called for unmapped ranges overlapping the query
+        const auto unmappedHandler = [this, &fail, fromAddress, size](u64 from, size_t chunkSize) -> bool {
+            u64 to = std::min(from + chunkSize, fromAddress + size);
+            
             std::string hint;
             
             if (m_spans.empty()) {
                 hint.append("ViewSection is empty!");
             } else {
-                auto upperBound = m_spans.upper_bound(from);
+                auto after = m_spans.upper_bound(from);
                 
-                auto before = std::prev(upperBound);
+                auto before = std::prev(after);
                 if (from < before->first) {
                     auto endsAt = before->first + before->second.size;
                     
                     hint.append(fmt::format("Last mapped area before ends at 0x{:X} ({} bytes away).", endsAt, to - endsAt));
                 }
 
-                if (upperBound != m_spans.end()) {
-                    auto startsAt = upperBound->first;
+                if (after != m_spans.end()) {
+                    auto startsAt = after->first;
                     
                     hint.append((hint.size() == 0) ? "" : " ");
                     hint.append(fmt::format("First mapped area after starts at 0x{:X} ({} bytes away).", startsAt, startsAt - from));
@@ -148,52 +288,35 @@ namespace pl::core {
             return fail(from, to, hint);
         };
         
-        if (m_spans.empty()) [[unlikely]] {
-            return outOfBounds(address, address + size);
-        }
-        
-        while(true) {
-            auto it = std::prev(m_spans.upper_bound(address));
-            
-            if (address < it->first) {
-                return outOfBounds(address, address + size);
-            }
-            
-            // Doing this check late ensures that even 0 size accesses to
-            //  outside of the mapped section spans are considered errors
-            if (size == 0) [[unlikely]] {
-                return std::nullopt;
-            }
-            
-            const SectionSpan& span = it->second;
-        
-            const auto chunkOffset = address - span.offset;
-            const auto chunkSize = std::min(size, span.size);
-            
+        // This handler is called for mapped ranges overlapping the query
+        const auto mappedHandler = [this, &fail, &result, &readerOrWriter](u64 address, size_t chunkSize, u64 sectionId, u64 chunkOffset) -> bool {
             try {
-                auto& section = m_evaluator.getSection(span.sectionId);
+                auto& section = m_evaluator.getSection(sectionId);
                 
                 if constexpr (IsRead) {
-                    if (auto error = section.read(chunkOffset, chunkSize, readerOrWriter)) {
-                        return fmt::format("Error writing underlying section {}: {}", span.sectionId, *error);
+                    auto error = section.read(chunkOffset, chunkSize, readerOrWriter);
+                    if (!error) {
+                        return false; // Continue
                     }
+                    
+                    result = fmt::format("Error writing underlying section {}: {}", sectionId, *error);
+                    return true; // Stop
                 } else {
-                    if (auto error = section.write(false, chunkOffset, chunkSize, readerOrWriter)) {
-                        return fmt::format("Error writing underlying section {}: {}", span.sectionId, *error);
+                    auto error = section.write(false, chunkOffset, chunkSize, readerOrWriter);
+                    if (!error) {
+                        return false; // Continue;
                     }
+                    
+                    result = fmt::format("Error writing underlying section {}: {}", sectionId, *error);
+                    return true; // Stop
                 }
             } catch (...) {
-                return fail(address, address + chunkSize, fmt::format("Failed to access mapped section {}", span.sectionId));
+                return fail(address, address + chunkSize, fmt::format("Failed to access mapped section {}", sectionId));
             }
-
-            address += chunkSize;
-            size -= chunkSize;
-            
-            // No point in repeating access checks
-            if (size == 0) {
-                return std::nullopt;
-            }
-        }
+        };
+        
+        iterate(fromAddress, size, unmappedHandler, mappedHandler);
+        return result;
     }
     
     ZerosSection::IOError ZerosSection::readRaw(u64, size_t size, ChunkReader& reader) const {
@@ -208,6 +331,24 @@ namespace pl::core {
 
     ZerosSection::IOError ZerosSection::writeRaw(u64, size_t, ChunkWriter&) {
         return "ZerosSections cannot be written";
+    }
+
+    bool ZerosSection::readChunkAttributes(u64 fromAddress, size_t size, ChunkAttributesReader& reader) const {
+        ChunkAttributes attribs {
+            .type = ChunkAttributes::Type::Zeros,
+            .baseAddress = 0,
+            .size = m_size
+        };
+        if (bool stop = reader(attribs)) {
+            return true;
+        }
+
+        if (fromAddress + size < attribs.size) {
+            return false;
+        }
+        
+        attribs.RestIsUnmapped();
+        return reader(attribs);
     }
 
 }

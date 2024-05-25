@@ -41,6 +41,8 @@ namespace pl::core {
         IOError readRaw(u64 fromAddress, size_t size, ChunkReader& reader) const override;
 
         IOError writeRaw(u64 toAddress, size_t size, ChunkWriter& writer) override;
+
+        bool readChunkAttributes(u64 fromAddress, size_t size, ChunkAttributesReader& reader) const override;
         
     private:
         u64 m_dataSize = 0x00;
@@ -84,6 +86,8 @@ namespace pl::core {
             return writer(std::span(m_buffer).subspan(address, size));
         }
 
+        bool readChunkAttributes(u64 fromAddress, size_t size, ChunkAttributesReader& reader) const override;
+        
         std::vector<u8> m_buffer;
         size_t m_maxSize;
     };
@@ -109,12 +113,23 @@ namespace pl::core {
 
         IOError writeRaw(u64 toAddress, size_t size, ChunkWriter& writer) override;
         
+        bool readChunkAttributes(u64 fromAddress, size_t size, ChunkAttributesReader& reader) const override;
+        
     private:
         struct SectionSpan {
             u64 sectionId;
             u64 offset;
             size_t size;
         };
+
+        /// Generalized iterator above underlying storage, handler signatures are:
+        ///  - `bool stop = unmapped(u64 address, size_t chunkSize)`
+        ///  - `bool stop = mapped(u64 address, size_t chunkSize, u64 sectionId, u64 chunkOffset)`
+        ///
+        /// `iterate` will visit all spans which overlap the provided area
+        ///
+        /// \returns Whether iteration was interrupted by a handler
+        bool iterate(u64 fromAddress, size_t size, auto& unmapped, auto& mapped) const;
         
         template<bool IsRead>
         IOError access(u64 address, size_t size, auto& readerOrWriter) const;
@@ -144,6 +159,8 @@ namespace pl::core {
         IOError readRaw(u64 fromAddress, size_t size, ChunkReader& reader) const override;
 
         IOError writeRaw(u64 toAddress, size_t size, ChunkWriter& writer) override;
+        
+        bool readChunkAttributes(u64 fromAddress, size_t size, ChunkAttributesReader& reader) const override;
         
     private:
         size_t m_size;

@@ -89,6 +89,54 @@ namespace pl::api {
         /// Shrink or expand this section to the specified size
         virtual IOError resize(size_t newSize) = 0;
 
+        struct ChunkAttributes {
+            enum class Type {
+                /// Represents a chunk of unknown quality - returned when the section implementation
+                /// would need to fetch the data to reason about it's attributes, or does not support
+                /// chunk attribute access
+                Unknown,
+                
+                /// Represents a chunk of address space with normal data inside
+                Generic,
+                
+                /// Represents a chunk of address space with no data inside
+                Unmapped,
+                
+                /// Represents a chunk of address space with nothing but zeros - note that section implementations
+                /// are not required to detect such repeating sections
+                Zeros,
+            };
+            
+            /// Type of this chunk
+            Type type = Type::Generic;
+            
+            /// Start address of this chunk
+            u64 baseAddress = 0x00;
+            
+            /// Size of the chunk
+            size_t size = 0;
+            
+            /// Whether the underlying bytes are writable
+            bool writable = false;
+            
+            /// Utility function for section authors
+            void RestIsUnmapped() {
+                type = Type::Unmapped;
+                baseAddress = baseAddress + size;
+                size = std::numeric_limits<size_t>::max() - baseAddress;
+                writable = false;
+            }
+        };
+        using ChunkAttributesReader = std::function<bool(const ChunkAttributes&)>;
+        
+        /// Read all attributed chunks overlapping the specified area - sections are guaranteed to produce non-overlapping contiguous chunks in their
+        /// address space, however the first/last chunks are not guaranteed to fit into the specified window.
+        ///
+        /// The provided `ChunkAttributesReader`  may return `true` to stop iterating chunk attributes.
+        ///
+        /// \returns Whether reading was interrupted by `reader`
+        virtual bool readChunkAttributes(u64 fromAddress, size_t size, ChunkAttributesReader& reader) const = 0;
+        
     protected:
         /// Performs a chunked write operation - incoming parameters have been already validated
         virtual IOError readRaw(u64 fromAddress, size_t size, ChunkReader& reader) const = 0;
