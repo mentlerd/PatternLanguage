@@ -196,4 +196,18 @@ namespace pl::core {
         }
     }
     
+    ZerosSection::IOError ZerosSection::readRaw(u64, size_t size, ChunkReader& reader) const {
+        static constexpr u8 kZeros[4096] = {};
+        
+        while (size_t chunkSize = std::min(size, sizeof(kZeros))) {
+            reader(std::span(kZeros).subspan(0, chunkSize));
+            size -= chunkSize;
+        }
+        return std::nullopt;
+    }
+
+    ZerosSection::IOError ZerosSection::writeRaw(u64, size_t, ChunkWriter&) {
+        return "ZerosSections cannot be written";
+    }
+
 }

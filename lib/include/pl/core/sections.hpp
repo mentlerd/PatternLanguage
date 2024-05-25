@@ -125,4 +125,28 @@ namespace pl::core {
         mutable bool m_isBeingAccessed = false;
     };
 
+    class ZerosSection : public api::Section {
+    public:
+        explicit ZerosSection(size_t initialSize)
+        : m_size(initialSize)
+        {}
+        
+    protected:
+        size_t size() const override {
+            return m_size;
+        }
+        
+        IOError resize(size_t newSize) override {
+            m_size = newSize;
+            return std::nullopt;
+        }
+        
+        IOError readRaw(u64 fromAddress, size_t size, ChunkReader& reader) const override;
+
+        IOError writeRaw(u64 toAddress, size_t size, ChunkWriter& writer) override;
+        
+    private:
+        size_t m_size;
+    };
+
 }
